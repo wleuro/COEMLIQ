@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/COEM.LicenseIQ.Application/COEM.LicenseIQ.Application.csproj" />
+    <Project Path="src/COEM.LicenseIQ.Domain/COEM.LicenseIQ.Domain.csproj" />
+    <Project Path="src/COEM.LicenseIQ.Infrastructure/COEM.LicenseIQ.Infrastructure.csproj" />
+    <Project Path="src/COEM.LicenseIQ.WebUI/COEM.LicenseIQ.WebUI.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/COEM.LicenseIQ.Tests/COEM.LicenseIQ.Tests.csproj" />
+  </Folder>
+</Solution>
