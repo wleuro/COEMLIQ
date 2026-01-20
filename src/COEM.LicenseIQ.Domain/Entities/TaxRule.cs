@@ -7,51 +7,43 @@ namespace COEM.LicenseIQ.Domain.Entities;
 
 public class TaxRule
 {
-    // Constructor privado para EF Core (requerido para materialización)
+    // Constructor privado para EF Core
     private TaxRule() { }
 
-    // Constructor público que FUERZA la integridad al crear la regla
-    public TaxRule(int originCountryId, int destCountryId, ProductTaxCategory category, ClientTaxProfile profile, decimal rate, string legalReference)
+    // Constructor público para crear nuevas reglas
+    public TaxRule(int countryId, ProductTaxCategory category, decimal rate, string legalReference)
     {
-        // Validaciones de Dominio (Guard Clauses)
-        if (rate < 0) throw new ArgumentException("La tasa de impuesto no puede ser negativa.", nameof(rate));
-        if (string.IsNullOrWhiteSpace(legalReference)) throw new ArgumentException("Debe existir una referencia legal para auditoría.", nameof(legalReference));
+        if (rate < 0) throw new ArgumentException("La tasa no puede ser negativa.");
 
-        OriginCountryID = originCountryId;
-        DestCountryID = destCountryId;
+        CountryID = countryId;
         ProductTaxCategory = category;
-        ClientTaxProfile = profile;
         TaxRate = rate;
         LegalReference = legalReference;
-        EffectiveDate = DateTime.UtcNow; // Por defecto, vigente desde hoy
+        EffectiveDate = DateTime.UtcNow;
     }
 
-    public int RuleID { get; private set; } // Setter privado, solo la DB genera IDs
-
-    // Nexus: ¿Quién factura?
-    public int OriginCountryID { get; private set; }
-
-    // Jurisdicción: ¿Quién compra?
-    public int DestCountryID { get; private set; }
-
-    // Vectores de Decisión (Enums para evitar "Magic Strings")
+    public int RuleID { get; private set; }
+    public int CountryID { get; private set; }
     public ProductTaxCategory ProductTaxCategory { get; private set; }
-    public ClientTaxProfile ClientTaxProfile { get; private set; }
-
-    // El Valor Crítico (Decimal para precisión financiera)
     public decimal TaxRate { get; private set; }
-
-    // Auditoría
     public DateTime EffectiveDate { get; private set; }
     public string LegalReference { get; private set; } = string.Empty;
 
-    // Comportamiento: Capacidad de actualizar la tasa (Auditada)
-    public void UpdateRate(decimal newRate, string newLegalReference)
+    // === ESTE ES EL MÉTODO QUE FALTABA ===
+    // Permite editar la tasa de manera controlada y auditada
+    public void UpdateRate(decimal newRate, string newReference)
     {
         if (newRate < 0) throw new ArgumentException("La tasa no puede ser negativa.");
 
         TaxRate = newRate;
-        LegalReference = newLegalReference;
-        EffectiveDate = DateTime.UtcNow; // Reinicia la vigencia con el cambio
+
+        // Si nos pasan una nueva referencia, la actualizamos. Si no, mantenemos la anterior o ponemos una genérica.
+        if (!string.IsNullOrWhiteSpace(newReference))
+        {
+            LegalReference = newReference;
+        }
+
+        // Importante: Actualizamos la fecha para saber cuándo ocurrió el último cambio
+        EffectiveDate = DateTime.UtcNow;
     }
 }

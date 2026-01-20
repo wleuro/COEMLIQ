@@ -4,6 +4,8 @@ using System.Text;
 using COEM.LicenseIQ.Application.Common.Interfaces.Services;
 using COEM.LicenseIQ.Application.Services;
 using Microsoft.Extensions.DependencyInjection;
+using System.Reflection;
+
 
 namespace COEM.LicenseIQ.Application;
 
@@ -15,8 +17,8 @@ public static class DependencyInjection
 
         // Registramos el TaxService
         // Scoped = Se crea una instancia nueva por cada solicitud HTTP (Ideal para servicios de negocio)
+        //services.AddAutoMapper(Assembly.GetExecutingAssembly());
         services.AddScoped<ITaxService, TaxService>();
-
         // Aquí agregarás IncentiveService, ClientService, etc. en el futuro.
 
         return services;

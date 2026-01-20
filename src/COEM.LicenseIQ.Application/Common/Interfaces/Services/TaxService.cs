@@ -5,7 +5,7 @@ using COEM.LicenseIQ.Application.Common.Interfaces.Persistence;
 using COEM.LicenseIQ.Application.Common.Interfaces.Services;
 using COEM.LicenseIQ.Application.Common.Models;
 using COEM.LicenseIQ.Domain.Enums;
-using Microsoft.Extensions.Logging; // Indispensable para monitoreo
+using Microsoft.Extensions.Logging;
 
 namespace COEM.LicenseIQ.Application.Services;
 
@@ -14,7 +14,6 @@ public class TaxService : ITaxService
     private readonly ITaxRepository _taxRepository;
     private readonly ILogger<TaxService> _logger;
 
-    // Inyección de dependencias: Pedimos el Repo y el Logger
     public TaxService(ITaxRepository taxRepository, ILogger<TaxService> logger)
     {
         _taxRepository = taxRepository;
@@ -22,17 +21,16 @@ public class TaxService : ITaxService
     }
 
     public async Task<TaxCalculationResult> CalculateTaxAsync(
-        int originCountryId,
-        int destCountryId,
+        int countryId,
         ProductTaxCategory category,
-        ClientTaxProfile clientProfile,
         decimal baseAmount,
         CancellationToken cancellationToken)
     {
-        // 1. Consultar el Motor de Reglas (La Matriz)
-        var rule = await _taxRepository.GetMatchAsync(originCountryId, destCountryId, category, clientProfile, cancellationToken);
+        // 1. Consultar la Matriz de Reglas
+        // Buscamos: "¿Cuál es la tasa para [Producto] en [País]?"
+        var rule = await _taxRepository.GetMatchAsync(countryId, category, cancellationToken);
 
-        // 2. Escenario A: Coincidencia Exacta (Happy Path)
+        // 2. Escenario Happy Path (Regla encontrada en base de datos)
         if (rule != null)
         {
             return TaxCalculationResult.Success(
@@ -42,24 +40,19 @@ public class TaxService : ITaxService
                 rule.RuleID);
         }
 
-        // 3. Escenario B: No hay regla (Anomalía)
-        // Aquí aplicamos la lógica de "Resguardo" definida en el documento.
-        // ADVERTENCIA: En un sistema Zenith, esto genera ruido en los logs.
+        // 3. Escenario Anomalía (Falta configuración)
+        // Esto ocurre si abres un país nuevo (ej. Chile) y olvidaste configurar sus tasas.
+        _logger.LogWarning("Tax Anomaly: No rule found for CountryID:{Country} Category:{Cat}",
+            countryId, category);
 
-        _logger.LogWarning("Tax Anomaly Detected: No rule found for Origin:{Origin} Dest:{Dest} Cat:{Cat} Profile:{Profile}",
-            originCountryId, destCountryId, category, clientProfile);
-
-        // Lógica de Fallback (Simplificada para MVP, debería venir de config o DB de países)
-        // Por seguridad fiscal, ante la duda, aplicamos la tasa estándar local si es consumo local.
-        decimal fallbackRate = (originCountryId == destCountryId) ? 19.00m : 0.00m;
-
-        // OJO Will: Este fallback hardcoded es peligroso. 
-        // Idealmente deberíamos tener un método _countryRepository.GetDefaultRate(destCountryId).
-        // Pero para avanzar, usamos esto y marcamos IsExactMatch = false.
+        // 4. Fallback Defensivo (Prudencia Financiera)
+        // Ante la duda, aplicamos una tasa estándar (19%) para proteger el margen.
+        // Es preferible que sobre dinero (devolución) a que falte en la auditoría.
+        decimal fallbackRate = 19.00m;
 
         return TaxCalculationResult.Default(
             fallbackRate,
             baseAmount,
-            "FALLBACK: No explicit rule found. Applied system default.");
+            "FALLBACK: Regla no configurada. Se aplica tasa estándar de protección.");
     }
 }

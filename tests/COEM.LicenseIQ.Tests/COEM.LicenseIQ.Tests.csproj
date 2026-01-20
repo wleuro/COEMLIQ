@@ -24,4 +24,8 @@
     <ProjectReference Include="..\..\src\COEM.LicenseIQ.Application\COEM.LicenseIQ.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Services\" />
+  </ItemGroup>
+
 </Project>

@@ -1,0 +1,109 @@
+﻿@page "/tax-calculator"
+@using COEM.LicenseIQ.Application.Common.Interfaces.Services
+@using COEM.LicenseIQ.Application.Common.Models
+@using COEM.LicenseIQ.Domain.Enums
+@rendermode InteractiveServer
+@inject ITaxService TaxService
+
+<h3>🦁 Motor Fiscal Zenith: Prueba de Jurisdicción</h3>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card p-4">
+            <h4>Simulador de Ventas</h4>
+
+            @* 1. SOLO UN PAÍS (Jurisdicción) *@
+            <div class="mb-3">
+                <label class="form-label fw-bold">País de la Transacción</label>
+                <select @bind="countryId" class="form-select">
+                    <option value="1">🇨🇴 Colombia</option>
+                    <option value="2">🇵🇪 Perú</option>
+                    <option value="3">🇪🇨 Ecuador</option>
+                </select>
+                <small class="text-muted">País donde se factura y entrega el servicio.</small>
+            </div>
+
+            @* 2. CATEGORÍA BINARIA (Cloud vs Local) *@
+            <div class="mb-3">
+                <label class="form-label fw-bold">Tipo de Producto</label>
+                <select @bind="category" class="form-select">
+                    @foreach (var cat in Enum.GetValues<ProductTaxCategory>())
+                    {
+                        <option value="@cat">@cat</option>
+                    }
+                </select>
+            </div>
+
+            @* 3. MONTO *@
+            <div class="mb-3">
+                <label class="form-label fw-bold">Monto Base (USD)</label>
+                <input type="number" @bind="amount" class="form-control" />
+            </div>
+
+            <button class="btn btn-primary w-100" @onclick="Calculate" disabled="@isLoading">
+                @(isLoading ? "Calculando..." : "Ejecutar Motor Fiscal")
+            </button>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        @if (result != null)
+        {
+            <div class="card p-4 @(result.IsExactMatch ? "bg-light" : "bg-warning-subtle")">
+                <h4>Resultados de Auditoría</h4>
+                <hr />
+                <dl class="row">
+                    <dt class="col-sm-6">Tasa Aplicada:</dt>
+                    <dd class="col-sm-6"><strong>@result.Rate %</strong></dd>
+
+                    <dt class="col-sm-6">Impuesto Calculado:</dt>
+                    <dd class="col-sm-6">$ @result.TaxAmount.ToString("N2")</dd>
+
+                    <dt class="col-sm-6">Total a Cobrar:</dt>
+                    <dd class="col-sm-6" style="font-size: 1.2em; color: green;">
+                        $ @((amount + result.TaxAmount).ToString("N2"))
+                    </dd>
+
+                    <dt class="col-sm-6">Regla Utilizada:</dt>
+                    <dd class="col-sm-6">@result.AppliedRuleReference</dd>
+
+                    <dt class="col-sm-6">Estado:</dt>
+                    <dd class="col-sm-6">
+                        @if (result.IsExactMatch)
+                        {
+                            <span class="badge bg-success">Validada (ID: @result.RuleId)</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-danger">FALLBACK / ALERTA</span>
+                        }
+                    </dd>
+                </dl>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    // Estado del formulario (Simplificado)
+    private int countryId = 1; // Default: Colombia
+    private ProductTaxCategory category = ProductTaxCategory.Cloud;
+    private decimal amount = 1000m;
+
+    // Estado de la UI
+    private bool isLoading = false;
+    private TaxCalculationResult? result;
+
+    private async Task Calculate()
+    {
+        isLoading = true;
+        // Simulamos latencia de red
+        //await Task.Delay(300);
+
+        // LLAMADA CORREGIDA: Solo 4 argumentos
+        // (País, Categoría, Monto, Token)
+        result = await TaxService.CalculateTaxAsync(countryId, category, amount, CancellationToken.None);
+
+        isLoading = false;
+    }
+}

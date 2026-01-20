@@ -8,11 +8,13 @@ namespace COEM.LicenseIQ.Application.Common.Interfaces.Services;
 
 public interface ITaxService
 {
+    /// <summary>
+    /// Calcula el impuesto basado en la jurisdicción (País) y el tipo de producto.
+    /// Simplificado: Ya no requiere origen/destino, solo el país de la transacción.
+    /// </summary>
     Task<TaxCalculationResult> CalculateTaxAsync(
-        int originCountryId,
-        int destCountryId,
+        int countryId,
         ProductTaxCategory category,
-        ClientTaxProfile clientProfile,
-        decimal baseAmount, // Precio sobre el cual calcular
+        decimal baseAmount,
         CancellationToken cancellationToken);
 }

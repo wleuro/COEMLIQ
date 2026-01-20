@@ -15,14 +15,17 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
     {
         // Configuración de SQL Server
+
         // La ConnectionString vendrá del appsettings.json o Key Vault
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseSqlServer(
                 configuration.GetConnectionString("DefaultConnection"),
                 b => b.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName)));
 
+        services.AddScoped<IApplicationDbContext>(provider => provider.GetRequiredService<ApplicationDbContext>());
         // Registrar Repositorios
         services.AddScoped<ITaxRepository, TaxRepository>();
+        services.AddScoped<ICommonRepository, CommonRepository>();
 
         return services;
     }

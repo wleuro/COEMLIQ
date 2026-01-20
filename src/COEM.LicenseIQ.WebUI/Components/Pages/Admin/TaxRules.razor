@@ -1,0 +1,358 @@
+﻿@page "/admin/tax-rules"
+@using COEM.LicenseIQ.Application.Common.Interfaces.Persistence
+@using COEM.LicenseIQ.Domain.Entities
+@using COEM.LicenseIQ.Domain.Enums
+@inject ITaxRepository TaxRepo
+@inject ICommonRepository CommonRepo
+@rendermode InteractiveServer
+
+<div class="container mt-4">
+    @* --- ENCABEZADO --- *@
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3>Gobierno Fiscal</h3>
+            <p class="text-muted">Configure las tasas de impuestos (IVA, IGV, etc) por País y Producto.</p>
+        </div>
+        <button class="btn btn-primary shadow" @onclick="OpenCreateModal">
+            Nueva Regla
+        </button>
+    </div>
+
+    @* --- LOADING STATE --- *@
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        @* --- TABLA DE DATOS --- *@
+        <div class="card shadow-sm border-0">
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4">País</th>
+                            <th>Producto</th>
+                            <th>Tasa</th>
+                            <th>Ref. Legal</th>
+                            <th class="text-end pe-4">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var rule in rules.OrderBy(r => r.CountryID))
+                        {
+                            <tr>
+                                <td class="ps-4 fw-bold">
+                                    @{
+                                        // Cruce de datos en memoria para mostrar el nombre
+                                        var c = countryList.FirstOrDefault(x => x.CountryID == rule.CountryID);
+                                        var name = c != null ? $"{c.IsoCode} - {c.Name}" : $"ID: {rule.CountryID}";
+                                    }
+                                    @name
+                                </td>
+                                <td>
+                                    @if (rule.ProductTaxCategory == ProductTaxCategory.Cloud)
+                                    {
+                                        <span class="badge bg-primary">Cloud</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">Local</span>
+                                    }
+                                </td>
+                                <td class="@(rule.TaxRate == 0 ? "text-success" : "")">
+                                    @rule.TaxRate.ToString("N2") %
+                                </td>
+                                <td class="small text-muted text-truncate" style="max-width: 150px;">
+                                    @rule.LegalReference
+                                </td>
+                                <td class="text-end pe-4">
+                                    <button class="btn btn-sm btn-outline-primary me-2" @onclick="() => OpenEditModal(rule)">
+                                        Editar
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => RequestDelete(rule)">
+                                        Eliminar
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                        @if (!rules.Any())
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">No hay reglas activas</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@* === MODAL 1: CREAR / EDITAR === *@
+@if (showModal)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header @(isEditing ? "" : "") text-bg-secondary">
+                    <h5 class="modal-title">
+                        @(isEditing ? "Editar Tasa" : "Nueva Regla Fiscal")
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+
+                    @* ALERTA DE ERROR *@
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger" role="alert">
+                            <strong>Error:</strong> @errorMessage
+                        </div>
+                    }
+
+                    @* PAÍS (Bloqueado al editar) *@
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">País</label>
+                        <select @bind="formCountryId" class="form-select" disabled="@isEditing">
+                            @foreach (var c in countryList)
+                            {
+                                <option value="@c.CountryID">@c.IsoCode - @c.Name (@c.CurrencyCode)</option>
+                            }
+                        </select>
+                    </div>
+
+                    @* CATEGORÍA (Bloqueado al editar) *@
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Tipo de Producto</label>
+                        <select @bind="formCategory" class="form-select" disabled="@isEditing">
+                            @foreach (var cat in Enum.GetValues<ProductTaxCategory>())
+                            {
+                                <option value="@cat">@cat</option>
+                            }
+                        </select>
+                        @if (isEditing)
+                        {
+                            <small class="text-muted d-block mt-1">
+                                Para cambiar el país o el producto, elimine esta regla y cree una nueva.
+                            </small>
+                        }
+                    </div>
+
+                    <div class="row">
+                        @* TASA *@
+                        <div class="col-md-5 mb-3">
+                            <label class="form-label fw-bold">Tasa (%)</label>
+                            <div class="input-group">
+                                <input type="number" @bind="formRate" class="form-control" step="0.01" />
+                                <span class="input-group-text">%</span>
+                            </div>
+                        </div>
+
+                        @* REFERENCIA *@
+                        <div class="col-md-7 mb-3">
+                            <label class="form-label fw-bold">Referencia Legal</label>
+                            <input type="text" @bind="formRef" class="form-control" placeholder="Ej. IVA General" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CloseModal">Cancelar</button>
+                    <button class="btn @(isEditing ? "btn-primary" : "btn-primary")" @onclick="SaveAsync">
+                        @(isEditing ? "Actualizar" : "Crear")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* === MODAL 2: CONFIRMACIÓN DE ELIMINACIÓN === *@
+@if (showDeleteModal && ruleToDelete != null)
+{
+    <div class="modal-backdrop fade show" style="z-index: 1050;"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="z-index: 1055;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-danger">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">Eliminación</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CancelDelete"></button>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <p class="lead mb-3">¿Está seguro de eliminar esta regla fiscal?</p>
+
+                    @* Tarjeta de detalle *@
+                    <div class="card bg-light border-0 p-3 mx-auto" style="max-width: 80%;">
+                        @{
+                            var cDel = countryList.FirstOrDefault(x => x.CountryID == ruleToDelete.CountryID);
+                            var cDelName = cDel != null ? cDel.Name : "Desconocido";
+                        }
+                        <div class="fw-bold fs-5">@cDelName</div>
+                        <div class="text-muted">@ruleToDelete.ProductTaxCategory</div>
+                        <div class="fw-bold text-danger mt-1 fs-4">@ruleToDelete.TaxRate %</div>
+                    </div>
+
+                    <p class="small text-muted mt-3 mb-0">Esta acción es inmediata y permanente.</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-secondary px-4" @onclick="CancelDelete">
+                        Cancelar
+                    </button>
+                    <button type="button" class="btn btn-danger px-4" @onclick="ConfirmDelete">
+                        Eliminar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // === ESTADO DE DATOS ===
+    private List<TaxRule> rules = new();
+    private List<Country> countryList = new();
+
+    // === ESTADO DE UI ===
+    private bool isLoading = true;
+
+    // Modal Crear/Editar
+    private bool showModal = false;
+    private bool isEditing = false;
+    private string errorMessage = "";
+
+    // Modal Eliminar
+    private bool showDeleteModal = false;
+    private TaxRule? ruleToDelete;
+
+    // === FORMULARIO ===
+    private int formRuleId = 0;
+    private int formCountryId;
+    private ProductTaxCategory formCategory = ProductTaxCategory.Cloud;
+    private decimal formRate = 19.00m;
+    private string formRef = "";
+
+    // === INICIALIZACIÓN ===
+    protected override async Task OnInitializedAsync()
+    {
+        // Carga secuencial para evitar conflictos de hilos en EF Core
+        countryList = await CommonRepo.GetActiveCountriesAsync(CancellationToken.None);
+        await LoadRules();
+
+        if (countryList.Any()) formCountryId = countryList.First().CountryID;
+        isLoading = false;
+    }
+
+    private async Task LoadRules()
+    {
+        rules = await TaxRepo.GetAllAsync(CancellationToken.None);
+    }
+
+    // === LÓGICA MODAL CREAR/EDITAR ===
+    private void OpenCreateModal()
+    {
+        errorMessage = "";
+        isEditing = false;
+        formRuleId = 0;
+        formRate = 19.00m;
+        formRef = "";
+        showModal = true;
+    }
+
+    private void OpenEditModal(TaxRule rule)
+    {
+        errorMessage = "";
+        isEditing = true;
+        // Cargar datos
+        formRuleId = rule.RuleID;
+        formCountryId = rule.CountryID;
+        formCategory = rule.ProductTaxCategory;
+        formRate = rule.TaxRate;
+        formRef = rule.LegalReference;
+        showModal = true;
+    }
+
+    private void CloseModal() => showModal = false;
+
+    // === LÓGICA DE GUARDADO (C/U) ===
+    private async Task SaveAsync()
+    {
+        errorMessage = "";
+        if (string.IsNullOrWhiteSpace(formRef)) formRef = "Gestión Admin";
+
+        try
+        {
+            if (isEditing)
+            {
+                // UPDATE
+                var ruleToUpdate = await TaxRepo.GetByIdAsync(formRuleId, CancellationToken.None);
+                if (ruleToUpdate != null)
+                {
+                    ruleToUpdate.UpdateRate(formRate, formRef);
+                    await TaxRepo.UpdateAsync(ruleToUpdate, CancellationToken.None);
+                }
+            }
+            else
+            {
+                // CREATE
+                // 1. Validar Duplicados
+                var existing = await TaxRepo.GetMatchAsync(formCountryId, formCategory, CancellationToken.None);
+                if (existing != null)
+                {
+                    errorMessage = $"Ya existe una regla para {formCategory} en este país.";
+                    return; // Detener
+                }
+
+                // 2. Crear
+                var newRule = new TaxRule(formCountryId, formCategory, formRate, formRef);
+                await TaxRepo.AddAsync(newRule, CancellationToken.None);
+            }
+
+            await LoadRules();
+            CloseModal();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "Error guardando datos. Verifique conexión.";
+            Console.WriteLine(ex);
+        }
+    }
+
+    // === LÓGICA DE ELIMINACIÓN (D) ===
+    private void RequestDelete(TaxRule rule)
+    {
+        ruleToDelete = rule;
+        showDeleteModal = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (ruleToDelete != null)
+        {
+            try
+            {
+                await TaxRepo.DeleteAsync(ruleToDelete.RuleID, CancellationToken.None);
+                await LoadRules();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error eliminando: {ex.Message}");
+            }
+            finally
+            {
+                showDeleteModal = false;
+                ruleToDelete = null;
+            }
+        }
+    }
+
+    private void CancelDelete()
+    {
+        showDeleteModal = false;
+        ruleToDelete = null;
+    }
+}

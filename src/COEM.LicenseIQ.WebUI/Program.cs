@@ -2,6 +2,7 @@ using COEM.LicenseIQ.WebUI.Components;
 using Azure.Identity;
 using COEM.LicenseIQ.Application;
 using COEM.LicenseIQ.Infrastructure;
+//using COEM.LicenseIQ.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,12 +20,15 @@ if (!string.IsNullOrEmpty(keyVaultUrl))
         new DefaultAzureCredential());
 }
 
+
+builder.Services.AddApplicationServices();
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(builder.Configuration);
+
 
 var app = builder.Build();
 
