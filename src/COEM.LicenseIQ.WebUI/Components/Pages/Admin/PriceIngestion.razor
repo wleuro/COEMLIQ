@@ -1,0 +1,206 @@
+﻿@page "/admin/price-ingestion"
+@using COEM.LicenseIQ.Application.Common.Interfaces.Services
+@using COEM.LicenseIQ.Domain.Entities
+@using Microsoft.AspNetCore.Components.Forms
+@inject IPriceIngestionService PriceService
+@rendermode InteractiveServer
+
+<PageTitle>Admin: Ingesta de Precios | COEM LicenseIQ</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="text-primary mb-0">Administración de Precios</h2>
+            <p class="text-muted">Carga y actualización masiva de listas CSP (NCE/Software).</p>
+        </div>
+    </div>
+
+    <div class="card shadow border-0">
+        <div class="card-header bg-light py-3">
+            <h5 class="card-title mb-0"><i class="bi bi-cloud-upload-fill me-2"></i>Nueva Ingesta</h5>
+        </div>
+        <div class="card-body p-4">
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger d-flex align-items-center" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    <div>@errorMessage</div>
+                </div>
+            }
+
+            @if (result != null)
+            {
+                <div class="alert @(result.Success ? "alert-success" : "alert-warning") shadow-sm" role="alert">
+                    <h4 class="alert-heading"><i class="bi bi-check-circle-fill me-2"></i>@result.Message</h4>
+                    <hr>
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <h3 class="fw-bold">@result.NewProducts</h3>
+                            <small class="text-uppercase">Productos Nuevos</small>
+                        </div>
+                        <div class="col-6">
+                            <h3 class="fw-bold">@result.UpdatedPrices</h3>
+                            <small class="text-uppercase">Precios Actualizados</small>
+                        </div>
+                    </div>
+                    <div class="mt-3 text-end">
+                        <button class="btn btn-outline-success btn-sm" @onclick="ResetForm">Cargar otro archivo</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <EditForm Model="@inputModel" OnValidSubmit="HandleSubmit" FormName="IngestForm">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+
+                    <div class="row g-4">
+
+                        <div class="col-md-5 border-end">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">1. País Destino</label>
+                                <InputSelect class="form-select" @bind-Value="inputModel.SelectedCountryId" required>
+                                    <option value="0" disabled selected>Seleccione...</option>
+                                    @if (availableCountries != null)
+                                    {
+                                        foreach (var country in availableCountries)
+                                        {
+                                            <option value="@country.CountryID">@country.Name (@country.IsoCode)</option>
+                                        }
+                                    }
+                                </InputSelect>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-success">2. Mes de Vigencia</label>
+                                <InputDate Type="@InputDateType.Month" class="form-control" @bind-Value="inputModel.ValidityMonth" required />
+                                <div class="form-text">Mes para el cual aplicarán estos precios.</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">3. Tipo de Lista</label>
+                                <InputSelect class="form-select" @bind-Value="inputModel.ListType" required>
+                                    <option value="NCE_Cloud">NCE Cloud Reseller</option>
+                                    <option value="Software">Software</option>
+                                    <option value="EOS">Legacy</option>
+                                </InputSelect>
+                            </div>
+                        </div>
+
+                        <div class="col-md-7 d-flex flex-column justify-content-center">
+                            <div class="mb-4">
+                                <label class="form-label fw-bold">4. Archivo CSV</label>
+                                <InputFile OnChange="LoadFiles" class="form-control" accept=".csv" />
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100 py-3 fw-bold" disabled="@(isLoading || selectedFile == null)">
+                                @if (isLoading)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                    <span>Procesando Ingesta...</span>
+                                }
+                                else
+                                {
+                                    <span>Iniciar Carga para @inputModel.ValidityMonth.ToString("MMMM yyyy")</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                </EditForm>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private IngestInputModel inputModel = new() { ListType = "NCE_Cloud" };
+    private List<Country> availableCountries = new();
+    private IBrowserFile? selectedFile;
+    private IngestResult? result;
+    private string? errorMessage;
+    private bool isLoading = false;
+
+    // Simulación de usuario
+    private Guid currentUserId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    public class IngestInputModel
+    {
+        public int SelectedCountryId { get; set; }
+        public string ListType { get; set; } = "NCE_Cloud";
+        public DateTime ValidityMonth { get; set; } = DateTime.Today;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            availableCountries = await PriceService.GetActiveCountriesAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error al cargar países: {ex.Message}";
+        }
+    }
+
+    private void LoadFiles(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        errorMessage = null;
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (selectedFile == null)
+        {
+            errorMessage = "Seleccione un archivo CSV.";
+            return;
+        }
+
+        if (inputModel.SelectedCountryId <= 0)
+        {
+            errorMessage = "Seleccione un país válido.";
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var selectedCountry = availableCountries.FirstOrDefault(c => c.CountryID == inputModel.SelectedCountryId);
+
+            if (selectedCountry == null)
+            {
+                errorMessage = "País inválido.";
+                return;
+            }
+
+            long maxFileSize = 1024 * 1024 * 50; // 50MB
+            using var stream = selectedFile.OpenReadStream(maxFileSize);
+
+            result = await PriceService.IngestPriceListAsync(
+                stream,
+                inputModel.SelectedCountryId,
+                selectedCountry.IsoCode,
+                inputModel.ListType,
+                currentUserId,
+                inputModel.ValidityMonth
+            );
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error crítico: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ResetForm()
+    {
+        result = null;
+        selectedFile = null;
+        errorMessage = null;
+    }
+}

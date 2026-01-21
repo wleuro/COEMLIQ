@@ -1,10 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Reflection;
+﻿using COEM.LicenseIQ.Application.Common.Interfaces.Persistence;
 using COEM.LicenseIQ.Domain.Entities;
+using COEM.LicenseIQ.Domain.Entities.CSP;
 using Microsoft.EntityFrameworkCore;
-using COEM.LicenseIQ.Application.Common.Interfaces.Persistence;
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Text;
 
 namespace COEM.LicenseIQ.Infrastructure.Persistence;
 
@@ -15,9 +16,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     {
     }
 
-    // --- IMPLEMENTACIÓN BLINDADA (Expression Body) ---
-    // Esto conecta la interfaz directamente al motor de EF Core sin ambigüedades.
-
+    public DbSet<CSP_Products> CSP_Products { get; set; }
+    public DbSet<CSP_PriceList> CSP_PriceList { get; set; }
+    public DbSet<PriceListImports> PriceListImports { get; set; }
     public DbSet<COEM.LicenseIQ.Domain.Entities.Country> Countries => Set<COEM.LicenseIQ.Domain.Entities.Country>();
 
     public DbSet<COEM.LicenseIQ.Domain.Entities.TaxRule> TaxRules => Set<COEM.LicenseIQ.Domain.Entities.TaxRule>();
