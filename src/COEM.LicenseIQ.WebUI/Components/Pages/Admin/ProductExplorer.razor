@@ -1,0 +1,236 @@
+﻿@page "/admin/product-explorer"
+@using COEM.LicenseIQ.Application.Common.Models
+@using COEM.LicenseIQ.Application.Common.Interfaces.Services
+@using COEM.LicenseIQ.Domain.Entities
+@using Microsoft.AspNetCore.Components.Forms
+@inject IPriceIngestionService PriceService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Explorador de Precios | COEM LicenseIQ</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h2 class="text-primary mb-0">Explorador de Precios</h2>
+            <p class="text-muted small">Auditoría y corrección manual de clasificación fiscal.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-exclamation-octagon-fill me-2"></i> @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <div class="card shadow-sm mb-4 border-0">
+        <div class="card-body bg-light rounded">
+            <EditForm Model="@filter" OnValidSubmit="PerformSearch">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold small">País</label>
+                        <InputSelect class="form-select form-select-sm" @bind-Value="filter.CountryId">
+                            @foreach (var c in countries)
+                            {
+                                <option value="@c.CountryID">@c.Name (@c.IsoCode)</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold small">Vigencia</label>
+                        <InputDate Type="@InputDateType.Month" class="form-control form-control-sm" @bind-Value="filter.ValidityMonth" />
+                    </div>
+
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold small">Segmento</label>
+                        <InputSelect class="form-select form-select-sm" @bind-Value="filter.SelectedSegment">
+                            <option value="All">Todos</option>
+                            @foreach (var seg in segments)
+                            {
+                                <option value="@seg">@seg</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold small">Buscar (SKU/Nombre)</label>
+                        <InputText class="form-control form-control-sm" @bind-Value="filter.SearchTerm" placeholder="..." />
+                    </div>
+
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-primary btn-sm w-100" disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                            }
+                            else
+                            {
+
+                                <i class="bi bi-search"></i>
+                                <span> Filtrar</span>
+ }
+                        </button>
+                    </div>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+
+    @if (products != null && products.Any())
+    {
+        <div class="table-responsive shadow-sm rounded bg-white">
+            <table class="table table-hover table-bordered mb-0 align-middle">
+                <thead class="table-light text-secondary small text-uppercase">
+                    <tr>
+                        <th style="width: 15%">SKU ID</th>
+                        <th style="width: 30%">Producto</th>
+                        <th style="width: 10%">Precio</th>
+                        <th style="width: 10%">Segmento</th>
+                        <th style="width: 25%">Clasificación Fiscal</th>
+                        <th style="width: 10%" class="text-center">Acción</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in products)
+                    {
+                        var rowClass = item.IsManualOverride ? "table-warning" : "";
+                        <tr class="@rowClass">
+                            <td class="small font-monospace">@item.SkuId</td>
+                            <td class="small">
+                                <div class="fw-bold text-truncate" style="max-width: 300px;" title="@item.ProductName">@item.ProductName</div>
+                                @if (item.IsManualOverride)
+                                {
+                                    <span class="badge bg-warning text-dark" style="font-size: 0.6em">MANUAL</span>
+                                }
+                            </td>
+                            <td class="text-end fw-bold">@item.UnitPrice.ToString("N2") <small>@item.Currency</small></td>
+                            <td class="small">@item.Segment</td>
+
+                            <td>
+                                <select class="form-select form-select-sm border-0 bg-transparent fw-bold text-primary"
+                                        value="@item.TaxCategory"
+                                        @onchange="@(e => UpdateCategory(item, e.Value.ToString()))">
+                                    <option value="cloud">Cloud (Nube)</option>
+                                    <option value="software_local">Software Local</option>
+                                </select>
+                            </td>
+                            <td class="text-center"><i class="bi bi-pencil-fill text-muted" style="opacity: 0.3"></i></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-2 text-muted small text-end">Mostrando primeros 500 resultados.</div>
+    }
+    else if (hasSearched)
+    {
+        <div class="alert alert-info text-center mt-4">
+            No se encontraron productos con los filtros seleccionados.
+        </div>
+    }
+</div>
+
+@code {
+    private FilterModel filter = new() { ValidityMonth = DateTime.Today };
+
+    private List<Country> countries = new();
+    private List<string> segments = new();
+    private List<ProductExplorerDto>? products;
+
+    private bool isLoading = false;
+    private bool hasSearched = false;
+    private string? errorMessage; // Variable para mensajes de error UI
+
+    public class FilterModel
+    {
+        public int CountryId { get; set; }
+        public DateTime ValidityMonth { get; set; } = DateTime.Today;
+        public string SearchTerm { get; set; } = "";
+        public string SelectedSegment { get; set; } = "All";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // CORRECCIÓN: Ejecución Secuencial (Safe)
+            // Primero cargamos países...
+            countries = await PriceService.GetActiveCountriesAsync();
+
+            // ...y LUEGO cargamos segmentos.
+            // Esto evita que el DbContext intente hacer dos cosas a la vez.
+            segments = await PriceService.GetUniqueSegmentsAsync();
+
+            if (countries.Any())
+            {
+                filter.CountryId = countries.First().CountryID;
+                // La búsqueda también es secuencial, así que no choca.
+                await PerformSearch();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error al inicializar datos: {ex.Message}";
+        }
+    }
+
+    private async Task PerformSearch()
+    {
+        isLoading = true;
+        hasSearched = true;
+        products = null;
+        errorMessage = null; // Limpiar errores previos
+
+        try
+        {
+            if (filter.CountryId <= 0) return;
+
+            products = await PriceService.SearchProductsAsync(
+                filter.CountryId,
+                filter.ValidityMonth,
+                filter.SearchTerm,
+                filter.SelectedSegment
+            );
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error en búsqueda: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task UpdateCategory(ProductExplorerDto item, string newCategory)
+    {
+        // Aquí SÍ podemos usar JS Alert si falla, porque esto lo dispara un evento de usuario (click),
+        // no la carga inicial de la página.
+        if (item.TaxCategory == newCategory) return;
+
+        var oldCategory = item.TaxCategory;
+        item.TaxCategory = newCategory;
+        item.IsManualOverride = true;
+
+        try
+        {
+            var success = await PriceService.UpdateProductTaxCategoryAsync(item.SkuId, newCategory);
+
+            if (!success)
+            {
+                throw new Exception("No se pudo guardar en base de datos.");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Rollback visual
+            item.TaxCategory = oldCategory;
+            item.IsManualOverride = false;
+            // Mostramos el error en UI en lugar de alert para consistencia, o JS si prefieres
+            errorMessage = $"Error al actualizar: {ex.Message}";
+        }
+    }
+}

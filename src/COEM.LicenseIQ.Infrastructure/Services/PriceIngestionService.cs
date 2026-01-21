@@ -7,6 +7,7 @@ using COEM.LicenseIQ.Application.Common.Interfaces.Services;
 using COEM.LicenseIQ.Domain.Entities;
 using COEM.LicenseIQ.Domain.Entities.CSP;
 using COEM.LicenseIQ.Infrastructure.Persistence;
+using COEM.LicenseIQ.Application.Common.Models;
 
 namespace COEM.LicenseIQ.Infrastructure.Services
 {
@@ -27,22 +28,83 @@ namespace COEM.LicenseIQ.Infrastructure.Services
                 .ToListAsync();
         }
 
+        public async Task<List<ProductExplorerDto>> SearchProductsAsync(int countryId, DateTime validityMonth, string searchTerm, string segment = null)
+        {
+            var targetMonth = new DateTime(validityMonth.Year, validityMonth.Month, 1);
+            var term = searchTerm?.ToLower() ?? "";
+
+            var query = from price in _context.CSP_PriceList
+                        join prod in _context.CSP_Products on price.SkuId equals prod.SkuId
+                        where price.CountryID == countryId
+                           && price.EffectiveDate.Year == targetMonth.Year
+                           && price.EffectiveDate.Month == targetMonth.Month
+                           && price.IsActive
+                        select new { price, prod };
+
+            // Filtro Texto
+            if (!string.IsNullOrWhiteSpace(term))
+            {
+                query = query.Where(x => x.prod.SkuTitle.ToLower().Contains(term) || x.prod.SkuId.ToLower().Contains(term));
+            }
+
+            // NUEVO: Filtro Segmento
+            if (!string.IsNullOrWhiteSpace(segment) && segment != "All")
+            {
+                query = query.Where(x => x.prod.Segment == segment);
+            }
+
+            // Aumentamos el límite a 500 ahora que tenemos más filtros
+            var results = await query.OrderBy(x => x.prod.SkuTitle)
+                                     .Take(500)
+                                     .Select(x => new ProductExplorerDto
+                                     {
+                                         SkuId = x.prod.SkuId,
+                                         ProductName = x.prod.SkuTitle,
+                                         Segment = x.prod.Segment,
+                                         UnitPrice = x.price.UnitPrice,
+                                         Currency = x.price.Currency,
+                                         TaxCategory = x.prod.ProductTaxCategory,
+                                         IsManualOverride = x.prod.IsManualOverride,
+                                         LastUpdated = x.prod.LastUpdated
+                                     }).ToListAsync();
+
+            return results;
+        }
+
+        // Nuevo método para llenar el dropdown
+        public async Task<List<string>> GetUniqueSegmentsAsync()
+        {
+            return await _context.CSP_Products
+                .Select(p => p.Segment)
+                .Distinct()
+                .OrderBy(s => s)
+                .ToListAsync();
+        }
+
+        public async Task<bool> UpdateProductTaxCategoryAsync(string skuId, string newCategory)
+        {
+            var product = await _context.CSP_Products.FindAsync(skuId);
+            if (product == null) return false;
+
+            // Actualizamos la categoría y marcamos el bloqueo manual
+            product.ProductTaxCategory = newCategory;
+            product.IsManualOverride = true;
+            product.LastUpdated = DateTime.Now;
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
         public async Task<IngestResult> IngestPriceListAsync(Stream fileStream, int countryIdInput, string countryIsoInput, string listType, Guid userId, DateTime validityDate)
         {
-            // Normalizamos la fecha al primer día del mes para evitar problemas (ej: 2026-02-01)
             var effectiveMonth = new DateTime(validityDate.Year, validityDate.Month, 1);
-
-            // 1. VALIDACIONES
             var targetCountry = await _context.Countries.FindAsync(countryIdInput);
-            if (targetCountry == null) return new IngestResult { Success = false, Message = "País no existe." };
 
-            if (!string.Equals(targetCountry.IsoCode, countryIsoInput, StringComparison.OrdinalIgnoreCase))
-                return new IngestResult { Success = false, Message = "Inconsistencia de ISO." };
+            if (targetCountry == null || !string.Equals(targetCountry.IsoCode, countryIsoInput, StringComparison.OrdinalIgnoreCase))
+                return new IngestResult { Success = false, Message = "Error de validación de País." };
 
-            // 2. AUDITORÍA
             var importLog = new PriceListImports
             {
-                // Incluimos el mes de vigencia en el nombre del archivo lógico
                 FileName = $"{listType}_{countryIsoInput}_{effectiveMonth:yyyy-MM}_{DateTime.Now:HHmm}",
                 UserGUID = userId,
                 CountryID = targetCountry.CountryID,
@@ -59,11 +121,10 @@ namespace COEM.LicenseIQ.Infrastructure.Services
                 await fileStream.CopyToAsync(memoryStream);
                 memoryStream.Position = 0;
 
-                // 3. PRE-CARGA INTELIGENTE (Optimizada para Vigencia Mensual)
+                // 1. CARGA DE REFERENCIAS (HashSet/Dict para velocidad)
                 var existingProductIds = await _context.CSP_Products.Select(p => p.SkuId).ToHashSetAsync();
 
-                // Cargamos SOLO los precios para ESTE PAÍS y ESTE MES de vigencia.
-                // Esto nos permite detectar si estamos corrigiendo una carga previa de este mismo mes.
+                // Diccionario de precios existentes para este mes
                 var pricesForThisMonth = await _context.CSP_PriceList
                     .Where(p => p.CountryID == targetCountry.CountryID && p.EffectiveDate == effectiveMonth)
                     .ToDictionaryAsync(p => p.SkuId);
@@ -71,95 +132,89 @@ namespace COEM.LicenseIQ.Infrastructure.Services
                 var productsToAdd = new List<CSP_Products>();
                 var pricesToAdd = new List<CSP_PriceList>();
 
-                var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-                {
-                    MissingFieldFound = null,
-                    HeaderValidated = null,
-                    PrepareHeaderForMatch = args => args.Header.ToLower().Replace(" ", ""),
-                };
-
                 using (var reader = new StreamReader(memoryStream))
-                using (var csv = new CsvReader(reader, config))
+                using (var csv = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture) { MissingFieldFound = null, HeaderValidated = null }))
                 {
-                    csv.Read(); csv.ReadHeader();
-                    bool isFirstRow = true;
+                    // LEEMOS COMO "DYNAMIC" PARA NO DEPENDER DE NOMBRES DE COLUMNAS FIJOS
+                    var records = csv.GetRecords<dynamic>();
 
-                    while (csv.Read())
+                    foreach (var row in records)
                     {
-                        string skuId = csv.GetField("SkuId") ?? csv.GetField("SkuID");
-                        string market = csv.GetField("Market");
-                        string unitPriceStr = csv.GetField("UnitPrice");
+                        // Convertimos la fila dinámica a un Diccionario para manipularla fácil
+                        var rowDict = (IDictionary<string, object>)row;
+
+                        // BÚSQUEDA TOLERANTE DE CAMPOS CLAVE
+                        // Buscamos las llaves ignorando mayúsculas/espacios
+                        string GetValue(string keyPart) =>
+                            rowDict.FirstOrDefault(k => k.Key.Replace(" ", "").Contains(keyPart, StringComparison.OrdinalIgnoreCase)).Value?.ToString();
+
+                        string skuId = GetValue("SkuId") ?? GetValue("SkuID") ?? GetValue("PartNumber") ?? GetValue("Material");
+                        string unitPriceStr = GetValue("UnitPrice");
+                        string market = GetValue("Market");
 
                         if (string.IsNullOrEmpty(skuId) || string.IsNullOrEmpty(unitPriceStr)) continue;
 
-                        // Validación Geo-Lock
-                        if (isFirstRow)
-                        {
-                            if (!string.Equals(market, targetCountry.IsoCode, StringComparison.OrdinalIgnoreCase))
-                            {
-                                importLog.Status = "Failed_GeoMismatch";
-                                await _context.SaveChangesAsync();
-                                return new IngestResult { Success = false, Message = $"Error: Lista de {market} no corresponde a {targetCountry.IsoCode}." };
-                            }
-                            isFirstRow = false;
-                        }
-                        if (!string.Equals(market, targetCountry.IsoCode, StringComparison.OrdinalIgnoreCase)) continue;
+                        // Geo-Lock
+                        if (!string.IsNullOrEmpty(market) && !market.Equals(targetCountry.IsoCode, StringComparison.OrdinalIgnoreCase)) continue;
 
                         if (!decimal.TryParse(unitPriceStr, out decimal newPrice)) continue;
 
-                        string title = csv.GetField("OfferName") ?? csv.GetField("ProductName") ?? "Unknown";
-                        string segment = csv.GetField("Segment") ?? "Commercial";
-                        string currency = csv.GetField("Currency") ?? "USD";
+                        string title = GetValue("OfferName")
+                                    ?? GetValue("ProductName")
+                                    ?? GetValue("Name")
+                                    ?? GetValue("Title")
+                                    ?? GetValue("Description")
+                                    ?? GetValue("SkuTitle")
+                                    ?? "Unknown";
+                        string currency = GetValue("Currency") ?? "USD";
 
-                        // Lógica Fiscal
-                        string taxCategory = (listType == "Software") ? "software_local" : "cloud";
-                        if (listType != "Software" && title.Contains("Perpetual", StringComparison.OrdinalIgnoreCase))
-                            taxCategory = "software_local";
+                        // --- AQUÍ OCURRE LA MAGIA DEL JSON ---
+                        // Serializamos TODO el diccionario de la fila. Si hay 50 columnas extrañas, se guardan aquí.
+                        string rawJson = JsonSerializer.Serialize(rowDict);
 
-                        // A. PRODUCTOS (Maestra única)
+                        // Lógica Fiscal (Simplificada)
+                        string taxCategory = (listType == "Software" || title.Contains("Perpetual", StringComparison.OrdinalIgnoreCase))
+                                             ? "software_local" : "cloud";
+
+                        // A. PRODUCTO (Upsert Lógico)
                         if (!existingProductIds.Contains(skuId))
                         {
                             productsToAdd.Add(new CSP_Products
                             {
                                 SkuId = skuId,
-                                ProductId = csv.GetField("ProductId") ?? "N/A",
+                                ProductId = GetValue("ProductId") ?? "N/A",
                                 SkuTitle = title,
                                 ProductTaxCategory = taxCategory,
-                                Segment = segment,
-                                IsManualOverride = false,
+                                Segment = GetValue("Segment") ?? "Commercial",
                                 LastUpdated = DateTime.Now
                             });
                             existingProductIds.Add(skuId);
                         }
 
-                        // B. PRECIOS (Por Vigencia)
-                        if (pricesForThisMonth.TryGetValue(skuId, out var existingPriceInMonth))
+                        // B. PRECIO (Con RawData)
+                        if (pricesForThisMonth.TryGetValue(skuId, out var existingPrice))
                         {
-                            // YA EXISTE PRECIO PARA ESTE MES: Es una corrección/re-carga.
-                            if (existingPriceInMonth.UnitPrice != newPrice)
+                            if (existingPrice.UnitPrice != newPrice)
                             {
-                                // Actualizamos el precio existente de este mes.
-                                // No creamos historia nueva, corregimos el dato del mes.
-                                existingPriceInMonth.UnitPrice = newPrice;
-                                existingPriceInMonth.ImportID = importLog.ImportID; // Actualizamos referencia de carga
-                                // Nota: EF Core detectará el cambio automáticamente al guardar.
+                                existingPrice.UnitPrice = newPrice;
+                                existingPrice.RawData = rawJson; // Actualizamos la data cruda también
+                                existingPrice.ImportID = importLog.ImportID;
                             }
                         }
                         else
                         {
-                            // NO EXISTE PRECIO PARA ESTE MES: Es un nuevo mes o nuevo producto.
-                            // Insertamos el nuevo registro con la fecha de vigencia seleccionada.
                             pricesToAdd.Add(new CSP_PriceList
                             {
                                 SkuId = skuId,
                                 ImportID = importLog.ImportID,
                                 CountryID = targetCountry.CountryID,
-                                Market = market,
+                                // Market ya no es obligatorio en la tabla si tenemos RawData, pero lo dejamos por consistencia
+                                Market = targetCountry.IsoCode,
                                 UnitPrice = newPrice,
                                 Currency = currency,
-                                EffectiveDate = effectiveMonth, // <--- LA FECHA QUE ELIGIÓ EL ADMIN
-                                IsActive = true, // Por defecto activo para su mes
-                                HistoryJSON = "[]"
+                                EffectiveDate = effectiveMonth,
+                                IsActive = true,
+                                RawData = rawJson // <--- AQUÍ SE GUARDA LA EVIDENCIA COMPLETA
                             });
                         }
                     }
@@ -168,25 +223,19 @@ namespace COEM.LicenseIQ.Infrastructure.Services
                 if (productsToAdd.Any()) await _context.CSP_Products.AddRangeAsync(productsToAdd);
                 if (pricesToAdd.Any()) await _context.CSP_PriceList.AddRangeAsync(pricesToAdd);
 
-                // NOTA: Para las actualizaciones (existingPriceInMonth), EF Core las maneja al llamar SaveChanges
-
                 importLog.Status = "Completed";
                 await _context.SaveChangesAsync();
 
-                return new IngestResult
-                {
-                    Success = true,
-                    Message = $"Carga exitosa para vigencia {effectiveMonth:MMM-yyyy}.",
-                    NewProducts = productsToAdd.Count,
-                    UpdatedPrices = pricesToAdd.Count // Aquí contaríamos también las actualizaciones si quisiéramos ser exactos
-                };
+                return new IngestResult { Success = true, Message = "Carga flexible completada.", NewProducts = productsToAdd.Count, UpdatedPrices = pricesToAdd.Count };
             }
             catch (Exception ex)
             {
                 importLog.Status = "Failed";
+                importLog.FileName += "_ERR"; // Marcamos error en nombre para debug visual
                 await _context.SaveChangesAsync();
                 return new IngestResult { Success = false, Message = $"Error: {ex.Message}" };
             }
         }
+
     }
 }

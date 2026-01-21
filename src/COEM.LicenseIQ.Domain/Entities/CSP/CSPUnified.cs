@@ -48,17 +48,16 @@ namespace COEM.LicenseIQ.Domain.Entities.CSP
         [ForeignKey("SkuId")]
         public CSP_Products Product { get; set; }
 
-        // RELACIÓN CON PAÍS (Asegúrate que la clase Country existe en Domain/Entities)
         public int CountryID { get; set; }
-
         [ForeignKey("CountryID")]
         public COEM.LicenseIQ.Domain.Entities.Country Country { get; set; }
 
         public long ImportID { get; set; }
 
-        [Required]
+        // --- ESTA ES LA PROPIEDAD QUE FALTABA ---
         [StringLength(2)]
         public string Market { get; set; }
+        // ----------------------------------------
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal UnitPrice { get; set; }
@@ -68,9 +67,12 @@ namespace COEM.LicenseIQ.Domain.Entities.CSP
 
         public DateTime EffectiveDate { get; set; }
 
-        public string HistoryJSON { get; set; } = "[]";
-
         public bool IsActive { get; set; } = true;
+
+        // Campo para el esquema híbrido (JSON completo)
+        public string RawData { get; set; } = "{}";
+
+        public string HistoryJSON { get; set; } = "[]";
     }
 
     // --- 3. AUDITORÍA DE CARGAS ---

@@ -1,8 +1,9 @@
-﻿using System;
+﻿using COEM.LicenseIQ.Application.Common.Models;
+using COEM.LicenseIQ.Domain.Entities; // Necesario para la lista de Country
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using COEM.LicenseIQ.Domain.Entities; // Necesario para la lista de Country
 
 namespace COEM.LicenseIQ.Application.Common.Interfaces.Services
 {
@@ -20,5 +21,14 @@ namespace COEM.LicenseIQ.Application.Common.Interfaces.Services
         Task<IngestResult> IngestPriceListAsync(Stream fileStream, int countryId, string countryIso, string listType, Guid userId, DateTime validityDate);
 
         Task<List<Country>> GetActiveCountriesAsync();
+
+        //Task<List<ProductExplorerDto>> SearchProductsAsync(int countryId, DateTime validityMonth, string searchTerm);
+
+        Task<bool> UpdateProductTaxCategoryAsync(string skuId, string newCategory);
+
+        Task<List<ProductExplorerDto>> SearchProductsAsync(int countryId, DateTime validityMonth, string searchTerm, string segment = null);
+
+        Task<List<string>> GetUniqueSegmentsAsync();
+
     }
 }
