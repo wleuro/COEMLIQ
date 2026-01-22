@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
+using COEM.LicenseIQ.Domain.Entities.Quotes;
 
 namespace COEM.LicenseIQ.Infrastructure.Persistence;
 
@@ -20,9 +21,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<CSP_PriceList> CSP_PriceList { get; set; }
     public DbSet<PriceListImports> PriceListImports { get; set; }
     public DbSet<COEM.LicenseIQ.Domain.Entities.Country> Countries => Set<COEM.LicenseIQ.Domain.Entities.Country>();
-
     public DbSet<COEM.LicenseIQ.Domain.Entities.TaxRule> TaxRules => Set<COEM.LicenseIQ.Domain.Entities.TaxRule>();
-
+    public DbSet<Quote> Quotes { get; set; }
+    public DbSet<QuoteItem> QuoteItems { get; set; }
     protected override void OnModelCreating(ModelBuilder builder)
     {
         builder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());

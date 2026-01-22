@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped<ITaxRepository, TaxRepository>();
         services.AddScoped<ICommonRepository, CommonRepository>();
         services.AddScoped<IPriceIngestionService, PriceIngestionService>();
+        services.AddScoped<QuoteExportService>();
         return services;
     }
 }
