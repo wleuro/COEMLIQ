@@ -83,16 +83,37 @@ namespace COEM.LicenseIQ.Infrastructure.Services
 
         public async Task<bool> UpdateProductTaxCategoryAsync(string skuId, string newCategory)
         {
-            var product = await _context.CSP_Products.FindAsync(skuId);
-            if (product == null) return false;
+            if (string.IsNullOrWhiteSpace(skuId)) return false;
 
-            // Actualizamos la categoría y marcamos el bloqueo manual
-            product.ProductTaxCategory = newCategory;
-            product.IsManualOverride = true;
-            product.LastUpdated = DateTime.Now;
+            try
+            {
+                // 1. Limpieza del ID por seguridad
+                var cleanId = skuId.Trim();
 
-            await _context.SaveChangesAsync();
-            return true;
+                // 2. Búsqueda directa (sin caché de FindAsync para evitar datos rancios)
+                var product = await _context.CSP_Products
+                    .FirstOrDefaultAsync(p => p.SkuId == cleanId);
+
+                if (product == null) return false;
+
+                // 3. Aplicar cambios
+                product.ProductTaxCategory = newCategory;
+                product.IsManualOverride = true;
+                product.LastUpdated = DateTime.Now;
+
+                // 4. FUERZA BRUTA: Le gritamos a EF Core que esto cambió
+                _context.Entry(product).State = EntityState.Modified;
+
+                // 5. Guardar
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // Loguear error si tienes logger, por ahora retornamos false
+                Console.WriteLine($"Error actualizando categoría: {ex.Message}");
+                return false;
+            }
         }
 
         public async Task<IngestResult> IngestPriceListAsync(Stream fileStream, int countryIdInput, string countryIsoInput, string listType, Guid userId, DateTime validityDate)

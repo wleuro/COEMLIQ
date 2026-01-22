@@ -5,6 +5,10 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace COEM.LicenseIQ.Domain.Entities.Quotes
 {
@@ -21,16 +25,14 @@ namespace COEM.LicenseIQ.Domain.Entities.Quotes
         public string ProjectName { get; set; }
 
         public DateTime CreatedDate { get; set; } = DateTime.Now;
-        public Guid CreatedBy { get; set; } // Tu UserGUID
+        public Guid CreatedBy { get; set; }
 
         [StringLength(3)]
         public string Currency { get; set; } = "USD";
 
-        // Estado: Draft, Approved, Sent
         [StringLength(20)]
         public string Status { get; set; } = "Draft";
 
-        // Relación con los items
         public virtual ICollection<QuoteItem> Items { get; set; } = new List<QuoteItem>();
     }
 
@@ -43,27 +45,36 @@ namespace COEM.LicenseIQ.Domain.Entities.Quotes
         [ForeignKey("QuoteId")]
         public Quote Quote { get; set; }
 
-        // Datos congelados del producto (Snapshot)
         public string SkuId { get; set; }
         public string ProductName { get; set; }
         public string Segment { get; set; }
 
-        // Datos Financieros
-        [Column(TypeName = "decimal(18,4)")]
-        public decimal UnitCost { get; set; } // Costo base (CSP)
+        // --- ESTA ES LA PROPIEDAD QUE TE FALTA ---
+        public string TaxCategory { get; set; } // "cloud" o "software_local"
+        // -----------------------------------------
 
         [Column(TypeName = "decimal(18,4)")]
-        public decimal MarginPercent { get; set; } // Ej: 15.00 para 15%
+        public decimal UnitCost { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]
-        public decimal UnitPrice { get; set; } // Precio Final al Cliente
+        public decimal MarginPercent { get; set; }
+
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UnitPrice { get; set; }
 
         public int Quantity { get; set; }
 
-        public string TermDuration { get; set; } // P1Y, P1M
-        public string BillingPlan { get; set; } // Monthly, Annual
+        public string TermDuration { get; set; }
+        public string BillingPlan { get; set; }
 
-        // Propiedad calculada simple
-        public decimal TotalLine => UnitPrice * Quantity;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal TaxRate { get; set; } // Porcentaje (ej: 19.00)
+
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal TaxAmount { get; set; } // Dinero (ej: $50.00)
+
+        // Propiedades calculadas (no se guardan en BD si solo tienen get =>)
+        public decimal SubTotal => UnitPrice * Quantity;
+        public decimal TotalLine => SubTotal + TaxAmount;
     }
 }

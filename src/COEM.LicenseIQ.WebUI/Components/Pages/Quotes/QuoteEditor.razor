@@ -1,52 +1,59 @@
 ﻿@page "/quotes/new"
 @using COEM.LicenseIQ.Domain.Entities.Quotes
 @using COEM.LicenseIQ.Domain.Entities
+@using COEM.LicenseIQ.Domain.Enums
 @using COEM.LicenseIQ.Application.Common.Models
 @using COEM.LicenseIQ.Application.Common.Interfaces.Services
 @using COEM.LicenseIQ.Infrastructure.Services
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment WebEnvironment
 @inject IPriceIngestionService PriceService
 @inject QuoteExportService ExportService
+@inject ITaxService TaxService  // <--- CORRECCIÓN: Usamos la interfaz correcta
 @inject IJSRuntime JS
 @implements IDisposable
 @rendermode InteractiveServer
 
 <div class="container-fluid pb-5">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-calculator-fill text-primary"></i> Cotizador Zenith</h2>
-        <button class="btn btn-success fw-bold" @onclick="DownloadExcel" disabled="@(!currentQuote.Items.Any())">
-            <i class="bi bi-file-earmark-excel-fill"></i> Exportar Excel
+        <div>
+            <h2 class="mb-0"><i class="bi bi-calculator-fill text-primary"></i> Cotizador Zenith</h2>
+            <small class="text-muted">Calculadora de ofertas con inteligencia fiscal.</small>
+        </div>
+        <button class="btn btn-success fw-bold shadow-sm" @onclick="DownloadExcel" disabled="@(!currentQuote.Items.Any())">
+            <i class="bi bi-file-earmark-excel-fill me-2"></i>Exportar Excel
         </button>
     </div>
 
     @if (!string.IsNullOrEmpty(errorMessage))
     {
-        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
-            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
-        </div>
+            <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+                <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+            </div>
     }
 
     <div class="card mb-4 border-0 shadow-sm">
         <div class="card-body bg-light">
             <div class="row g-3">
                 <div class="col-md-3">
-                    <label class="form-label fw-bold text-primary">1. País / Lista</label>
-                    <InputSelect class="form-select border-primary" @bind-Value="selectedCountryId">
-                        <option value="0">Seleccione...</option>
+                    <label class="form-label fw-bold text-primary">1. País / Jurisdicción</label>
+                    <InputSelect class="form-select border-primary fw-bold" @bind-Value="selectedCountryId">
+                        <option value="0">-- Seleccione País --</option>
                         @foreach (var c in availableCountries)
                         {
-                            <option value="@c.CountryID">@c.Name (@c.IsoCode)</option>
+                                <option value="@c.CountryID">@c.Name (@c.IsoCode)</option>
                         }
                     </InputSelect>
+                    <div class="form-text small">Define las reglas de impuestos.</div>
                 </div>
 
                 <div class="col-md-5">
                     <label class="form-label fw-bold">2. Cliente</label>
-                    <input type="text" class="form-control" @bind="currentQuote.CustomerName" placeholder="Empresa Cliente S.A.S..." />
+                    <input type="text" class="form-control" @bind="currentQuote.CustomerName" placeholder="Ej: Banco de Occidente..." />
                 </div>
                 <div class="col-md-2">
                     <label class="form-label fw-bold">3. Proyecto</label>
-                    <input type="text" class="form-control" @bind="currentQuote.ProjectName" placeholder="Migración Nube..." />
+                    <input type="text" class="form-control" @bind="currentQuote.ProjectName" placeholder="Ej: Renovación EA..." />
                 </div>
                 <div class="col-md-2">
                     <label class="form-label fw-bold">4. Moneda</label>
@@ -61,93 +68,152 @@
 
     <div class="row">
         <div class="col-md-4">
-            <div class="card shadow-sm h-100">
-                <div class="card-header bg-white fw-bold">
-                    <i class="bi bi-search"></i> Catálogo
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header bg-white fw-bold py-3">
+                    <i class="bi bi-search me-2"></i>Catálogo de Productos
                 </div>
                 <div class="card-body">
                     <div class="input-group mb-3">
-                        <input type="text" class="form-control" placeholder="Escribe para buscar (ej: Windows)..."
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" placeholder="Buscar (ej: Windows Server)..."
                                @bind="searchTerm"
                                @oninput="OnSearchInput" />
                     </div>
 
                     @if (isSearching)
                     {
-                        <div class="text-center py-3"><span class="spinner-border text-primary"></span></div>
+                            <div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div></div>
                     }
                     else
                     {
-                        <div class="list-group overflow-auto" style="max-height: 500px;">
-                            @foreach (var prod in searchResults)
-                            {
-                                <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
-                                        @onclick="() => AddToQuote(prod)">
-                                    <div style="width: 70%">
-                                        <div class="fw-bold small text-truncate">@prod.ProductName</div>
-                                        <div class="text-muted" style="font-size: 0.7rem">@prod.SkuId | @prod.Segment</div>
-                                    </div>
-                                    <span class="badge bg-primary rounded-pill">@prod.UnitPrice.ToString("N2")</span>
-                                </button>
-                            }
-                            @if (searchResults.Count == 0 && !string.IsNullOrEmpty(searchTerm) && searchTerm.Length > 2)
-                            {
-                                <div class="text-center text-muted mt-3 small">No hay resultados. Verifique el País seleccionado.</div>
-                            }
-                        </div>
+                            <div class="list-group list-group-flush overflow-auto custom-scrollbar" style="max-height: 550px;">
+                                @foreach (var prod in searchResults)
+                                {
+                                        <button class="list-group-item list-group-item-action py-3" @onclick="() => AddToQuote(prod)">
+                                            <div class="d-flex w-100 justify-content-between align-items-start">
+                                                <div style="width: 75%">
+                                                    <h6 class="mb-1 text-truncate" title="@prod.ProductName">@prod.ProductName</h6>
+                                                    <div class="text-muted small">@prod.SkuId</div>
+
+                                                    <span class="badge bg-light text-secondary border mt-1">
+                                                        @(prod.TaxCategory == "cloud" ? "☁️ NUBE" : "💻 SOFTWARE")
+                                                    </span>
+                                                </div>
+                                                <span class="badge bg-primary rounded-pill">@prod.UnitPrice.ToString("N2")</span>
+                                            </div>
+                                        </button>
+                                }
+                                @if (searchResults.Count == 0 && searchTerm.Length > 2)
+                                {
+                                        <div class="text-center text-muted mt-4">
+                                            <i class="bi bi-inbox fs-1"></i>
+                                            <p class="small mt-2">No se encontraron productos.</p>
+                                        </div>
+                                }
+                            </div>
                     }
                 </div>
             </div>
         </div>
 
         <div class="col-md-8">
-            <div class="card shadow-sm">
-                <div class="card-header bg-white fw-bold d-flex justify-content-between">
-                    <span>Items Seleccionados (@currentQuote.Items.Count)</span>
-                    <span class="text-success fs-5">Total: @currentQuote.Items.Sum(i => i.TotalLine).ToString("C2")</span>
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                    <span class="fw-bold">Items Seleccionados (@currentQuote.Items.Count)</span>
+                    <div class="text-end">
+                        <div class="small text-muted">Total Oferta</div>
+                        <div class="fs-4 fw-bold text-success">@currentQuote.Items.Sum(i => i.TotalLine).ToString("C2")</div>
+                    </div>
                 </div>
+
                 <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0">
-                        <thead class="table-light small">
+                    <table class="table table-hover align-middle mb-0 text-small">
+                        <thead class="table-light text-secondary text-uppercase small">
                             <tr>
-                                <th style="width:30%">Producto</th>
-                                <th style="width:10%">Costo</th>
+                                <th style="width:25%">Producto</th>
+                                <th style="width:10%" class="text-center">Fiscal</th>
+                                <th style="width:10%" class="text-end">Costo</th>
                                 <th style="width:10%">Margen %</th>
-                                <th style="width:10%">Precio Venta</th>
-                                <th style="width:10%">Cant.</th>
-                                <th style="width:15%">Total</th>
+                                <th style="width:10%" class="text-end">Venta Unit.</th>
+                                <th style="width:8%">Cant.</th>
+                                <th style="width:10%" class="text-end">Impuesto</th>
+                                <th style="width:12%" class="text-end">Total</th>
                                 <th style="width:5%"></th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var item in currentQuote.Items)
                             {
-                                <tr>
-                                    <td class="small">
-                                        <div class="text-truncate" style="max-width: 200px;" title="@item.ProductName">@item.ProductName</div>
-                                        <small class="text-muted">@item.TermDuration</small>
-                                    </td>
-                                    <td class="text-end small">@item.UnitCost.ToString("N2")</td>
-                                    <td>
-                                        <input type="number" class="form-control form-control-sm"
-                                               value="@item.MarginPercent"
-                                               @onchange="@(e => UpdateMargin(item, e.Value))" step="1" />
-                                    </td>
-                                    <td class="text-end fw-bold text-primary">@item.UnitPrice.ToString("N2")</td>
-                                    <td>
-                                        <input type="number" class="form-control form-control-sm"
-                                               value="@item.Quantity"
-                                               @onchange="@(e => UpdateQuantity(item, e.Value))" min="1" />
-                                    </td>
-                                    <td class="text-end fw-bold">@item.TotalLine.ToString("N2")</td>
-                                    <td>
-                                        <button class="btn btn-link text-danger p-0" @onclick="() => RemoveItem(item)">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </td>
-                                </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="fw-bold text-truncate" style="max-width: 180px;" title="@item.ProductName">@item.ProductName</div>
+                                            <div class="text-muted" style="font-size:0.7em">@item.TermDuration | @item.BillingPlan</div>
+                                        </td>
+
+                                        <td class="text-center">
+                                            @if (item.TaxCategory == "software_local")
+                                            {
+                                                    <span class="badge bg-warning text-dark border border-warning" style="font-size:0.65em">SOFTWARE</span>
+                                            }
+                                            else
+                                            {
+                                                    <span class="badge bg-info text-dark border border-info" style="font-size:0.65em">NUBE</span>
+                                            }
+                                        </td>
+
+                                        <td class="text-end text-muted">@item.UnitCost.ToString("N2")</td>
+
+                                        <td>
+                                            <input type="number" class="form-control form-control-sm text-center"
+                                                   value="@item.MarginPercent"
+                                                   @onchange="@(e => UpdateMargin(item, e.Value))" step="1" />
+                                        </td>
+
+                                        <td class="text-end fw-bold text-primary">@item.UnitPrice.ToString("N2")</td>
+
+                                        <td>
+                                            <input type="number" class="form-control form-control-sm text-center"
+                                                   value="@item.Quantity"
+                                                   @onchange="@(e => UpdateQuantity(item, e.Value))" min="1" />
+                                        </td>
+
+                                        <td class="text-end" style="cursor:pointer" @onclick="() => ToggleTax(item)" title="Clic para alternar exención">
+                                            @if (item.TaxRate > 0)
+                                            {
+                                                    <div class="text-danger fw-bold" style="font-size:0.85em">@item.TaxAmount.ToString("N2")</div>
+                                                    <div class="text-muted" style="font-size:0.65em">(@item.TaxRate%)</div>
+                                            }
+                                            else
+                                            {
+                                                    <span class="badge bg-light text-muted border">EXENTO 0%</span>
+                                            }
+                                        </td>
+
+                                        <td class="text-end fw-bold">@item.TotalLine.ToString("N2")</td>
+
+                                        <td class="text-center">
+                                            <button class="btn btn-link text-danger p-0" @onclick="() => RemoveItem(item)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
                             }
                         </tbody>
+                        @if (currentQuote.Items.Any())
+                        {
+                                <tfoot class="table-light border-top">
+                                    <tr>
+                                        <td colspan="7" class="text-end fw-bold text-muted small text-uppercase">Subtotal Venta:</td>
+                                        <td class="text-end fw-bold">@currentQuote.Items.Sum(i => i.SubTotal).ToString("N2")</td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="7" class="text-end fw-bold text-danger small text-uppercase">Total Impuestos:</td>
+                                        <td class="text-end fw-bold text-danger">@currentQuote.Items.Sum(i => i.TaxAmount).ToString("N2")</td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                        }
                     </table>
                 </div>
             </div>
@@ -170,7 +236,7 @@
 </script>
 
 @code {
-    private Quote currentQuote = new() { CreatedBy = Guid.NewGuid() }; // ID temporal de usuario
+    private Quote currentQuote = new() { CreatedBy = Guid.NewGuid() };
     private List<Country> availableCountries = new();
     private int selectedCountryId = 0;
 
@@ -180,7 +246,6 @@
     private string? errorMessage;
     private bool isSearching = false;
 
-    // Timer para Debounce (Evita crash por escribir rápido)
     private System.Timers.Timer? _debounceTimer;
 
     protected override async Task OnInitializedAsync()
@@ -195,7 +260,6 @@
             errorMessage = "Error cargando países: " + ex.Message;
         }
 
-        // Configurar timer: espera 500ms después de dejar de escribir
         _debounceTimer = new System.Timers.Timer(500);
         _debounceTimer.AutoReset = false;
         _debounceTimer.Elapsed += async (sender, e) => await InvokeAsync(PerformSearch);
@@ -204,12 +268,10 @@
     private void OnSearchInput(ChangeEventArgs e)
     {
         searchTerm = e.Value?.ToString() ?? "";
-
-        // Reiniciamos el reloj cada vez que escribes una letra
         _debounceTimer?.Stop();
         if (searchTerm.Length >= 3)
         {
-            isSearching = true; // Mostrar spinner
+            isSearching = true;
             _debounceTimer?.Start();
         }
         else
@@ -224,38 +286,86 @@
         try
         {
             if (selectedCountryId == 0) return;
-
-            // Busca usando el ID REAL seleccionado, no uno inventado
             searchResults = await PriceService.SearchProductsAsync(selectedCountryId, DateTime.Today, searchTerm);
         }
         catch (Exception ex)
         {
-            errorMessage = $"Error en búsqueda: {ex.Message}";
+            errorMessage = $"Error buscando productos: {ex.Message}";
         }
         finally
         {
             isSearching = false;
-            StateHasChanged(); // Actualizar UI
+            StateHasChanged();
         }
     }
 
-    private void AddToQuote(ProductExplorerDto product)
+    // --- CONEXIÓN CON ITaxService ---
+    private async Task AddToQuote(ProductExplorerDto product)
     {
-        var item = new QuoteItem
+        try
         {
-            SkuId = product.SkuId,
-            ProductName = product.ProductName,
-            Segment = product.Segment,
-            UnitCost = product.UnitPrice,
-            MarginPercent = 10,
-            Quantity = 1,
-            TermDuration = "P1Y", // Default
-            BillingPlan = "Monthly"
-        };
+            var item = new QuoteItem
+            {
+                SkuId = product.SkuId,
+                ProductName = product.ProductName,
+                Segment = product.Segment,
+                TaxCategory = product.TaxCategory, // string del DTO ("cloud", "software_local")
+                UnitCost = product.UnitPrice,
+                MarginPercent = 10,
+                Quantity = 1,
+                TermDuration = "P1Y",
+                BillingPlan = "Monthly"
+            };
+
+            // 1. Calcular Base Inicial (Precio Venta)
+            item.UnitPrice = item.UnitCost * (1 + (item.MarginPercent / 100));
+            decimal baseAmount = item.UnitPrice * item.Quantity;
+
+            // 2. Mapear string a Enum para el servicio
+            ProductTaxCategory taxEnum = (item.TaxCategory == "software_local")
+                ? ProductTaxCategory.Software_Local
+                : ProductTaxCategory.Cloud;
+
+            // 3. Llamar a ITaxService
+            var result = await TaxService.CalculateTaxAsync(selectedCountryId, taxEnum, baseAmount, CancellationToken.None);
+
+            // 4. Asignar resultado
+            item.TaxRate = result.Rate;
+            // Recalculamos el TaxAmount en RecalculateItem para mantener consistencia si cambia cantidad
+            RecalculateItem(item);
+
+            currentQuote.Items.Add(item);
+
+            searchTerm = "";
+            searchResults.Clear();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error calculando impuestos: {ex.Message}";
+        }
+    }
+
+    private async Task ToggleTax(QuoteItem item)
+    {
+        if (item.TaxRate > 0)
+        {
+            item.TaxRate = 0; // Forzar exento
+        }
+        else
+        {
+            // Reactivar: Consultamos de nuevo al servicio para saber la tasa correcta
+            ProductTaxCategory taxEnum = (item.TaxCategory == "software_local")
+                ? ProductTaxCategory.Software_Local
+                : ProductTaxCategory.Cloud;
+
+            // Calculamos con base actual
+            decimal baseAmount = item.UnitPrice * item.Quantity;
+
+            var result = await TaxService.CalculateTaxAsync(selectedCountryId, taxEnum, baseAmount, CancellationToken.None);
+            item.TaxRate = result.Rate;
+        }
+
         RecalculateItem(item);
-        currentQuote.Items.Add(item);
-        searchTerm = ""; // Limpiar buscador
-        searchResults.Clear();
     }
 
     private void UpdateMargin(QuoteItem item, object value)
@@ -272,12 +382,19 @@
         if (int.TryParse(value.ToString(), out int qty))
         {
             item.Quantity = qty;
+            RecalculateItem(item);
         }
     }
 
     private void RecalculateItem(QuoteItem item)
     {
+        // 1. Base Imponible (Unitario)
         item.UnitPrice = item.UnitCost * (1 + (item.MarginPercent / 100));
+
+        // 2. Impuesto Total Línea = (Precio * Cantidad) * %Impuesto
+        // Usamos la tasa (Rate) que ya tenemos guardada en el item (traída del servicio)
+        decimal subTotal = item.UnitPrice * item.Quantity;
+        item.TaxAmount = subTotal * (item.TaxRate / 100);
     }
 
     private void RemoveItem(QuoteItem item)
@@ -291,7 +408,9 @@
         {
             if (string.IsNullOrEmpty(currentQuote.CustomerName)) currentQuote.CustomerName = "Cliente_General";
 
-            var excelBytes = ExportService.GenerateExcel(currentQuote);
+            // CAMBIO AQUÍ: Pasamos WebRootPath (la ruta a wwwroot)
+            var excelBytes = ExportService.GenerateExcel(currentQuote, WebEnvironment.WebRootPath);
+
             using var stream = new MemoryStream(excelBytes);
             using var streamRef = new DotNetStreamReference(stream);
 

@@ -207,30 +207,34 @@
 
     private async Task UpdateCategory(ProductExplorerDto item, string newCategory)
     {
-        // Aquí SÍ podemos usar JS Alert si falla, porque esto lo dispara un evento de usuario (click),
-        // no la carga inicial de la página.
-        if (item.TaxCategory == newCategory) return;
+        // Validación preventiva
+        if (string.Equals(item.TaxCategory, newCategory, StringComparison.OrdinalIgnoreCase)) return;
 
         var oldCategory = item.TaxCategory;
+        var wasManual = item.IsManualOverride; // Guardamos el estado anterior también
+
+        // 1. Cambio Optimista (Visual inmediato)
         item.TaxCategory = newCategory;
         item.IsManualOverride = true;
 
         try
         {
+            // 2. Intento de Guardado
             var success = await PriceService.UpdateProductTaxCategoryAsync(item.SkuId, newCategory);
 
             if (!success)
             {
-                throw new Exception("No se pudo guardar en base de datos.");
+                throw new Exception("El registro no existe o no se pudo guardar.");
             }
+            // Si llega aquí, todo salió bien.
         }
         catch (Exception ex)
         {
-            // Rollback visual
+            // 3. Rollback (Si falló, devolvemos todo como estaba)
             item.TaxCategory = oldCategory;
-            item.IsManualOverride = false;
-            // Mostramos el error en UI en lugar de alert para consistencia, o JS si prefieres
-            errorMessage = $"Error al actualizar: {ex.Message}";
+            item.IsManualOverride = wasManual;
+            errorMessage = $"No se pudo guardar: {ex.Message}";
+            StateHasChanged(); // Forzamos refresco de UI
         }
     }
 }
